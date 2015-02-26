@@ -1,0 +1,41 @@
+\section{Related Work}\label{sec:related}
+
+% \paragraph{Workload synthesis}
+
+\paragraph{Stress/load test generation}
+
+The typical method to generate load tests is to induce load by
+increasing the input size (e.g., a larger query or a larger number of
+queries) or the rate at which input is provided (e.g., more
+query requests per unit of time) \cite{load-testing}. However, such techniques 
+are not very discriminating with respect to the kind of load
+that is introduced, \eg the kind of query can make a big difference
+to the response time.
+
+Previous work in workload synthesis \cite{joshi-hpca08, kim-micro12,
+bodik-socc10} applies genetic algorithms to synthesize benchmarks for stress
+testing. The key idea is to form an abstract space parameterized on a finite
+number of workload characteristics such as instruction mix, instruction level
+parallelism, or working set size, and employ genetic algorithms to search for
+the optimal point with regard to a target metric such as execution time,
+energy consumption, or voltage fluctuation. Nevertheless, the application is
+treated as a black box that accepts the generated tests as input and emits the
+performance metrics as output. In the absence of correlation between tests and code,
+it is arduous to analyze the testing results and fix the issues found from
+running these tests.
+
+Zhang {\em et al.} design a tool that generates tests that target certain types of load~\cite{loadtests_zhang_ase11}. In their scheme, the user is asked for the metric that characterizes
+load, such as memory consumption. Based on this information, the tool
+searches for paths, using symbolic execution, that stress that
+load metric. For example, if the user is
+interested in memory consumption, then paths containing
+memory allocation actions are favored. In the background section,
+we have already presented discussion of another technique in this
+category, WISE \cite{burnim-icse09}, which generates worst-case inputs,
+\ie inputs that cause the program to run the longest. FOREPOST~\cite{loadinputs_grechanik_icse12} uses runtime monitoring for a short duration of testing. The data that is collected is fed through a machine learning algorithm and automated test scripts 
+provide insights into properties of test input data that lead
+to increased computational loads.   
+
+% SB (11/13/13): The following part can be chopped if we have space issues. 
+\paragraph{Dynamic techniques for detecting loop problems}
+There are some solutions that apply dynamic techniques to detect problems with a loop, such as, the loop will never terminate, or that the loop has a performance issue. For example, \cite{looper_burnim_ase09} describes {\sc Looper}, which dynamically analyzes a program to detect non-termination. For this, it uses symbolic execution to generate a non-terminating path and then uses the SMT solver, to create concrete variables that will cause such non-termination, if such a situation exists. Some techniques like \cite{kling2012bolt} seek to cure such loop problems. 

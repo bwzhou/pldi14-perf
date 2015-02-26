@@ -1,0 +1,120 @@
+\section{Implementation}\label{sec:implementation}
+
+This section presents the implementation of \lancet.
+The symbolic execution engine used in the explicit mode of \lancet is built on top of KLEE, with added support for pthread-based multithreaded programming, libevent-based asynchronous event processing, socket-based network communication and various performance enhancements for the symbolic execution engine.
+%To run an application on \lancet, it needs to be compiled into LLVM bitcode first. 
+% The original application building system of KLEE is based on {\tt llvm-gcc}, an obsolete C front-end for LLVM, which frequently fails for many latest applications. 
+\lancet uses the build system of Cloud9~\cite{cloud9}, based on Clang~\cite{clang}, allowing it to compile makefile-based C programs into LLVM bitcode~\cite{llvm-bitcode} required by the symbolic execution engine.
+We now discuss the changes made to baseline KLEE.
+
+\subsection{POSIX Thread}
+\label{sec:pthread}
+
+\lancet supports most of PThread API for thread management, synchronization and thread-specific store (Table~\ref{tab:pthread}).
+A thread is treated the same as a process except that it shares address space and path condition with the parent process that has created it.
+And since threads are treated as processes, they are scheduled sequentially to execute unless a thread is blocked in a synchronization calls, such as calling {\tt pthread\_mutex\_lock} on a lock that has been acquired by another thread.
+When a thread encounters a branch with a symbolic condition, it will forked all threads belonging to the same process, essentially making a copy for the entire process.
+Both mutex and condition variable are implemented as a wait queue.
+When the current owner releases the synchronization resource, \lancet will pop a thread from the wait queue to take control of the resource and mark the thread runnable.
+\lancet applies the {\em wait morphing} technique to reduce wasted wake-up calls in condition variables.
+When the condition variable has an associated mutex, {\tt pthread\_cond\_signal/broadcast} does not wake up the threads, but rather move them from waiting on the condition variable, to waiting on the mutex.
+
+\begin{table}[tbp]
+  \centering
+  \caption{\lancet supports most of PThread API for thread management, synchronization and thread-specific store.}
+  \label{tab:pthread}
+  \begin{tabular}{ll}
+    \hline
+    {\bf Category} & {\bf API}\\
+    \hline
+    \multirow{4}{*}{Thread Management} & pthread\_create\\
+    & pthread\_join\\
+    & pthread\_exit\\
+    & pthread\_self\\
+    \hline
+    \multirow{8}{*}{Synchronization} & pthread\_mutex\_init\\
+    & pthread\_mutex\_lock\\
+    & pthread\_mutex\_trylock\\
+    & pthread\_mutex\_unlock\\
+    & pthread\_cond\_init\\
+    & pthread\_cond\_signal\\
+    & pthread\_cond\_broadcast\\
+    & pthread\_cond\_wait\\
+    \hline
+    \multirow{4}{*}{Thread Specific Store} & pthread\_key\_create\\
+    & pthread\_key\_delete\\
+    & pthread\_setspecific\\
+    & pthread\_getspecific\\
+    \hline
+  \end{tabular}
+\end{table}
+
+
+\subsection{Socket}
+\label{sec:socket}
+
+Socket API is a network programming interface, provided by Linux and other operating systems, that allows applications to control and use network communication.
+Server applications, like Apache, MySQL and Memcached, consume data received from the network via sockets, therefore cannot be tested in solitude.
+Previous work~\cite{cloud9} that generates tests for Memcached using symbolic execution combines a client program into the server code to address this problem.
+However, this approach requires deep knowledge of the server program under test to write the client code and cannot be easily generalized.
+Inspired by Unix's design that treats sockets the same as regular files, \lancet takes a similar approach that implements symbolic sockets as regular symbolic files of a fixed size configurable in the command line.
+Essentially, instead of simulating sporadic network traffic in real world, \lancet sends a single symbolic packet to the server program under test.
+Leveraging the existing symbolic file system of KLEE, our implementation creates a fixed number of symbolic files during system initialization, and allocates a free symbolic file to associate with a socket when the socket is created.
+
+
+\subsection{Libevent}
+\label{sec:event}
+
+Libevent is a software library that provides asynchronous event notification and provides a mechanism to execute a callback function when a specific event occurs on a file descriptor.
+\lancet implements Libevent as part of its runtime, centering around a core structure, {\em event base}, the hub for event registration and dispatch.
+It simulates event base as a concurrent queue that supports multiple producers and consumers.
+The queue implementation is based on PThread condition variable and mutex for thread synchronization.
+To register a event, \lancet inserts a new item into the corresponding event queue.
+
+A Libevent-based application usually contains a thread that calls the function {\tt event\_base\_loop} to execute callback functions for events in a loop.
+In \lancet's implementation of Libevent, {\tt event\_base\_base} runs a loop forever to go through an event queue and call registered callback functions for activated events until all events are deleted from the queue.
+{\tt event\_base\_loop} also employs PThread condition variable to synchronize with event registration and dispatch.
+
+
+%%%%How to handle arrays, other symbolic constraints %%% Not necessary for the new inference
+%%%\paragraph{Symbolic-sized memory allocation}
+%%%
+%%%If the value of a symbolic variable is used for the size of dynamic memory allocation, KLEE concretizes the variable so that allocation can be done with a concrete size. This poses a problem for \lancet, since we want to keep input parameters symbolic to scale the target loop. To address this problem, we implement symbolic-sized memory allocation in \lancet, which allows for memory allocation without concretizing the symbolic variables that determine the size of the allocation.
+%%%
+%%%A new memory allocation function is added for allocating symbolic sized memory. This function returns a concrete handle to the application to address the memory. Internally, the handle is translated into the real address of allocated memory via an allocation table that records every symbolic allocation. In this way, we achieved two desirable properties. First, the approach is transparent to the application since the application can always use the same handle to address the memory. Second, the allocated memory can grow on demand, \ie only the allocation table needs to be updated if the memory is reallocated to a larger size to accommodate a larger value for the symbolic size.
+%%%
+%%%% . An alternative way is to update all uses of the variable that stores the base address returned by the allocation function whenever the memory grows by reallocation. But this would cause extra overhead because we need to record of every use of the symbolic memory.
+%%%
+%%%In KLEE, on any memory access, the address and size are provided, and \lancet must resolve them into a {\em memory object} that refers to the memory allocated during an allocation operation. All memory objects are organized in a binary search tree indexed by base address. An access resolves to an object if its address falls between the base address of the object and the next object. This strategy does not work with symbolic-sized memory allocation, because memory objects are allocated with symbolic size, and may need to be resized if the constraints on the symbolic size change during execution. \lancet solves this problem by introducing a level of indirection. It maintains a special symbolic index variable to the base address of every symbolic allocation. Every access uses this index variable to look up the actual base address in the allocation table, and resolves the base address to the correct memory object.
+%%%
+%%%% In any memory read or write access, the address and the size are given and the system would resolve them into a memory object that covers the memory area defined by the pair. Memory object is just a previously allocated memory. All memory objects are organized in a binary search tree indexed by their base address. An access is resolved to an object if its address fell in between the base addresses of the object and the next object. This address resolution scheme assumes no overlapping area between any consecutive memory allocations. However, this is not true for symbolic sized memory allocation. For example, it is possible for an access intended for a symbolic memory being resolved to a different memory object which happens to cover the memory area right after by overlapping. In \lancet, we solve this problem by adding a special symbolic index variable in the base address of every symbolic allocation, and every subsequent access would use the index variable to look up for the actual base address in the allocation table. Then we can resolve the base address to the correct memory object.
+
+%Discussion of changes made to KLEE for efficiency
+\subsection{Various Optimizations}
+\paragraph{Simplified libraries}
+
+Certain functions in the C standard library consume a significant amount of time in symbolic execution. One case is {\tt atoi()}, which is frequently used in C programs to transform a NULL-terminated string into an integer. The standard implementation for {\tt atoi()} supports different bases for the integer and tolerates illegal characters in the input string, all of which add complexity to the code and slow down symbolic execution with a huge number of execution paths. Since \lancet is not concerned with looking for corner cases that trigger bugs---unlike KLEE---we opt to simplify some of these common functions in the runtime. For example, in a simplified {\tt atoi()}, only characters between '0' and '9' is allowed except for the trailing NULL in the string. Note that this simplification applies only to KLEE's handling of {\tt atoi()}; the program under test need not be changed.
+This simplification also helps keep constraints from different runs in a consistent form and eases the identification of constraint templates.
+
+\paragraph{Scheduling changes}
+
+The explorer mode of \lancet leverages a code discovery strategy that biases for new code coverage. We found this searching strategy often results in breadth-first traversal of execution paths, causing excessive memory utilization during the search. This phenomenon is because programs usually allocate memory at the beginning of execution and release memory towards the end. 
+% SB (11/15/13): It is not clear how this causes BFS search. 
+Breadth-first search strategies thus perform allocations for every symbolic process, consuming significant amounts of memory. KLEE has a copy-on-write memory sharing mechanism in place to mitigate this problem. However, it cannot skip the duplication of memory allocation when memory initialization is used after allocation. For example, in {\tt libquantum}, {\tt calloc()} is used to acquire memory and initialize the content by zeroing the allocated memory immediately.
+
+To address this problem, \lancet employs an auxiliary search strategy in explorer mode to delay the execution of symbolic processes that are about to make an external function call (\eg {\tt malloc()} or {\tt calloc()})
+This strategy keeps all processes with imminent external calls in a separate queue and prioritizes the execution of processes that stay inside the application's own code. When the only processes left are those in the queue, \lancet dequeues a waiting process and begins execution. Thus, \lancet makes sure that earlier symbolic processes have a chance to release resources before another process allocates additional resources.
+
+%%\paragraph{Targeting loops} %%% Redundant
+%%
+%%\lancet implements the target loop annotation {\tt [[loop\_target]]} as a statement attribute in Clang, designated for {\tt for}, {\tt while} and {\tt do}. In Clang's code generation phase, {\tt [[loop\_target]]} causes metadata to be appended to the header block of the target loop in the resultant bytecode. During symbolic execution of the generated LLVM bytecode, \lancet initiates roller mode once the metadata is found.
+
+%%%\paragraph{Verifying trip counts} %%% Moved to method.tex
+%%%
+%%%For inferred test inputs, we need to verify during evaluation, the actual number of iterations that is achieved for the target loop in runtime. For this purpose, \lancet also compiles the application into a native executable with lightweight instrumentation that profiles the target loop. The instrumentation is inserted around the target loop in compile time during a loop optimization pass of LLVM. It maintains an internal counter for the number of times the header block of the target loop has been executed and outputs the trip count at program exit. 
+
+% We also provided two hooks in the profiling code: {\tt \_before\_loop()} is called before the first instruction in the header block of the target loop, and {\tt \_after\_loop()} after the last instruction of every exit block. These hook functions can be used for targeted loop performance measurement.
+% SB (11/15/13): The concept of hook functions is not used by \name, is it? It is OK to keep it here, but is not relevant. 
+% MK (11/15/13): Agreed. I'm cutting it because we're going to be short of space.
+% , for instance, calling PAPI to start a hardware performance counter before the target loop and fetching the reading of the performance counter after the target loop.
+% MK: Cutting this out because we don't talk about doing this anywhere else...

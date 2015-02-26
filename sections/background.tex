@@ -1,0 +1,144 @@
+\section{Background: Dynamic Symbolic Execution}
+\label{sec:background}
+
+Many state-of-the-art white-box test-generation tools rely on {\em dynamic
+symbolic execution}~\cite{klee,dart-pldi05,sen-cacm}. This section provides a brief
+overview of how these tools work, and discusses some of the shortcomings of
+current techniques that \lancet aims to ameliorate.
+
+\subsection{Dynamic Symbolic Execution Basics}
+
+Dynamic symbolic execution couples the traditional strengths of symbolic
+analysis---tracking constraints on variables to determine the feasibility of
+various program behaviors---with the efficiency of regular concrete execution.
+The inputs to a program are treated as symbolic variables.
+% SB (11/12/13): This is better said as ``The inputs to a program are 
+% treated as symbolic variables.''
+As the program
+executes, statements that involve symbolic variables are executed
+symbolically, adding constraints on symbolic variables. When a
+branch statement is reached ({\em e.g.} {\tt if (x < y) goto L}), {\em one} of
+the paths is taken, and the appropriate constraint is added to the {\em path condition}, or set of constraints ({\em e.g.}, if the branch above is taken, the constraint $(x <
+y)$ would be added to the path condition). As new constraints are added to the
+path condition an SMT solver (Satisfiability Modulo Theory) is invoked to ensure that
+the path condition is still satisfiable; unsatisfiable constraints imply that
+the particular path that execution has taken is infeasible---no program
+execution could follow that path. Once a path through the program is found,
+the SMT solver is used to produce a {\em concrete} set of values for all
+the symbolic variables. These concrete values constitute an input. Note that
+unlike traditional symbolic execution, dynamic symbolic analysis can always
+fall back to concrete values for variables; if execution encounters a
+statement that cannot be analyzed using the underlying SMT solver, calling an external function for example, the
+variables involved can be concretized and the statement can be executed
+normally. What it gives up is completeness of the code coverage as a result
+of the concretization. 
+
+\subsection{Path Exploration Heuristics}
+
+One of the key decisions in dynamic symbolic execution tool is how to choose
+the path through a program an execution should explore. In other words, how to
+choose directions for the branches encountered in execution. For example, a
+tool such as KLEE~\cite{klee} executes multiple paths concurrently, in an attempt to
+generate a series of inputs to exercise different paths of the program.
+When encountering the branch statement described above, KLEE can fork the
+execution to two clones that follow the two branches respectively, choose one
+execution clone to explore first and save the other for later. The resultant
+paths would include the constraint $(x < y)$ in the clone that follows the true
+branch, and $\neg(x < y)$ in the one that follows the false
+branch.
+
+
+There are numerous heuristics that can be used to choose which path
+to explore first at each branch in dynamic symbolic execution; the choice of the
+correct heuristic depends on the goals of the particular tool being developed.
+We abstract away the goal of a dynamic symbolic execution tool by describing
+it in terms of a {\em meta-constraint}. A meta-constraint is a higher level
+constraint that the path condition describing a particular execution
+attempts to satisfy. For example, in the case of generating high-coverage
+tests, the meta-constraint for a tool may be to produce a path that exercises
+program statements not seen by previously-generated inputs, in which case a
+path-exploration heuristic might prioritize flipping branches to generate a
+never-before-seen set of constraints. In the case of generating stress tests,
+as in \lancet, the meta-constraint would be to generate a path condition
+that exercises a particular loop body a certain, user-defined number of times, in which case
+the path-exploration heuristic might prioritize taking branches that cause the
+loop to execute again, till the user-defined limit is reached 
+(Section~\ref{sec:loop-centric}). Note that just
+as a path condition may not be tight---there can be many possible
+concrete inputs that follow a particular path through the execution---a
+meta-constraint need not be tight: multiple path conditions may all
+satisfy a given meta-constraint.
+
+\subsection{Dynamic Symbolic Execution Overhead}
+
+The primary drawback of dynamic symbolic execution is its dependence on an
+underlying SMT solver to manage the path condition that an execution generates.
+At every branch, the SMT solver must be invoked to determine whether a
+particular choice for a branch is feasible or infeasible. Though the
+constraint solver is also invoked to concretize input variables when
+necessary, or to generate the final concrete input for a particular run, the
+majority of queries to the solver arise from these feasibility
+checks~\cite{sen-cacm}. Though there are many techniques to reduce the expense
+of queries to the constraint solver, such as reducing the query size by
+removing irrelevant constraints and reusing the results of prior queries
+whenever possible~\cite{klee}, the fundamental expense of invoking the
+constraint solver at each branch in an execution remains. This overhead can
+lead to an order-of-magnitude slowdown in execution~\cite{klee}.
+
+A second overhead of dynamic symbolic execution is the path-explosion problem.
+The path exploration heuristics of a particular tool may prioritize certain
+choices for branches in an attempt to satisfy the tool's meta-constraint.
+However, the exploration heuristics may be wrong: whenever a branch is
+encountered, if the heuristic makes the wrong choice, the meta-constraint may
+not be satisfiable, and the tool must return to the branch to make a different
+choice.
+
+These two overheads make generating large-scale, long-running inputs using
+dynamic symbolic execution difficult. First, as the path being explored gets
+longer, more branches are encountered, resulting in more invocations to the
+SMT solver. Second, long-running inputs execute more branches, creating more
+opportunities for the path-exploration heuristic to ``guess wrong,'' leading
+to unsatisfiable meta-constraints and ultimately leading to path explosion.
+
+\subsection{WISE}
+
+WISE is perhaps the most closely-related dynamic symbolic execution technique
+to \lancet. WISE attempts to generate worst-case inputs for programs ({\em
+e.g.}, a worst-case input for a binary-search-tree construction program would
+be a sorted list of integers, generating an unbalanced tree)~\cite{burnim-icse09}. In
+meta-constraint terms, WISE attempts to generate a path condition
+that produces worst-case inputs of a reasonably large size.
+
+While it is possible to exhaustively search through all possible path conditions for a certain input size to find the worst-case inputs, it is clear that this approach will lead
+to path explosion when applied to larger inputs. To avoid the path explosion
+problem, WISE uses the following strategy. It exhaustively searches the
+input space for small input sizes to find worst-case behaviors. Then, by
+performing pattern matching on the worst-case path conditions generated
+for different input sizes, WISE learns what choices worst-case path conditions typically make for branches in the program ({\em e.g.}, always following the
+left child to add a new element in a BST). This pattern is then integrated
+into a path-exploration heuristic.
+
+At large scales, when WISE encounters a branch, it looks through the
+patterns that it identified at small scales to choose the direction for the
+branch. In essence, WISE has a notion of what a worst-case path condition
+``looks like,'' and chooses directions for branches to make the path condition
+for a larger input match that worst-case pattern. By using this new
+path-exploration heuristic, WISE is able to find worst-case inputs for larger
+scales without exploring every possible path. In many cases, WISE need only
+explore a single path through the program to find a worst-case input!
+
+WISE addresses the overheads of dynamic symbolic execution by tackling the
+second drawback described above: it controls path explosion by learning the
+pattern of path constraints from smaller runs where path explosion is less of
+an issue. Nevertheless, WISE still sits on top of dynamic symbolic execution,
+and must query the SMT solver at every branch; it does not tackle the first
+source of overhead. As a result, even though WISE has much better scalability
+than na\"ive symbolic execution, it still cannot generate particularly large
+inputs. Generating an input that runs a loop one million times still requires
+performing symbolic execution on a run that visits the loop test condition one
+million times.
+
+
+Section~\ref{sec:inference-mode} explains how \lancet tackles this
+problem. In particular, \lancet can generate large-scale inputs for a program
+{\em without ever performing symbolic execution at large scales}.

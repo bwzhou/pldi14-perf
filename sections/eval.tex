@@ -1,0 +1,162 @@
+\section{Evaluation}\label{sec:evaluation}
+
+We have used \lancet to generate inputs for several applications, both in explicit mode and inference mode. The benchmarks we use to evaluate \lancet's explicit mode are {\tt mvm}, a simple program for matrix-vector multiplication, {\tt lq} (libquantum), a simulation of quantum factoring, {\tt lbm}, a Lattice-Boltzmann computational simulation, and {\tt wc}, the Unix word-count utility. We take {\tt Memcached}, a distributed in-memory object caching system as a case study for the inference mode. The first three benchmarks are {\em numeric}: the inputs to the benchmarks are simple numerical values, which \lancet naturally handles. The fourth benchmark, {\tt wc}, is {\em structured}: it takes a list of words separated by spaces and line breaks as the input. {\tt Memcached}, on the other hand, serves a variety of different commands defined by its client-server communication protocol. Both {\tt lq} and {\tt lbm} are drawn from the SPEC CPU2006 benchmark suite. In all benchmarks, we targeted the main (outer) loop of the program for scaling, except with {\tt mvm}, where we targeted both the inner (row) loop and outer (column) loop (labeled as {\tt mvm(i)} and {\tt mvm(o)} in the following discussion). For the case study with {\tt Memcached}, we targeted the loop that processes a "get" command, which is used to retrieve data objects associated with the list of keys given in the command.
+
+\subsection{General Observations with Benchmarks}
+
+\subsubsection{\lancet's Explicit Mode versus KLEE} 
+
+In our first experiment, we compared the effectiveness of \lancet's explicit mode for generating scaling inputs to baseline KLEE. This comparison primarily highlights the modifications made to the symbolic execution engine in \lancet: the loop-centric search heuristic and the scheduling changes.
+
+For each program, we ran \lancet in explicit mode for 1 hour (with the exception of {\tt lbm}, which we ran for 24 hours, as the target loop is deep in the code), and determined (i) how many tests \lancet was able to generate (only counting tests that execute the loop at least once), and (ii) the largest-scale input \lancet was able to generate (\ie the largest number of iterations the target loop executed in any synthesized input). We then performed the same experiment using baseline, unmodified KLEE. The results are given in Table~\ref{fig:lancetvsklee}.
+
+We see that for the more complex programs, {\tt lq} and {\tt lbm}, \lancet is able to generate more test inputs that stress the loop than KLEE, and that those inputs run the loop for more iterations. In {\tt lbm}, KLEE cannot even generate test inputs, as it runs out of memory. \lancet's optimized process scheduling (Section~\ref{sec:implementation}) avoids this pitfall. In {\tt lq}, although KLEE successfully generates 4 inputs in one hour, none of them reach the target loop, while \lancet generates 168 different inputs. This advantage arises because of \lancet's ``roller'' path exploration heuristic. While searching for the loop itself, \lancet behaves similarly to KLEE. However, once a path reaching the loop is found, \lancet builds upon that path as much as possible to run the loop for additional iterations.
+
+Note that the {\tt mvm(i)} numbers are misleading. \lancet was configured to stop generating inputs when it reached 100 iterations. Although KLEE may appear to have generated more, and larger, inputs, \lancet generated the {\tt mvm(i)} inputs in $\sim$1 second, and clearly could have outpaced KLEE. We will perform a more equitable comparison in the final version.
+
+Note that because KLEE does not perform symbolic allocation (allocations are concretized), its normal execution is faster than \lancet; \lancet's advantage arises purely from its optimized path exploration heuristics and process scheduling. In programs where path explosion is attenuated, KLEE can be faster. We see this effect in {\tt wc}, where KLEE generates larger inputs than \lancet. Note, however, that \lancet's inference mode will still allow it to generate large inputs faster, as it need only generate a handful of small inputs to start predicting path conditions for larger inputs.
+
+\begin{table}
+  \small
+  \centering
+  \caption{Effectiveness of \lancet and KLEE at generating scaling inputs for target programs. KLEE is unable to generate any inputs for {\tt lbm}, as it runs out of memory.}
+  \label{fig:lancetvsklee}
+  \begin{tabular}{|l|l|l|l|l|}
+    \hline
+    \multirow{2}{*}{Bench} & \multicolumn{2}{c|}{\lancet} & \multicolumn{2}{c|}{KLEE} \\
+    & \# of tests & Max scale & \# of tests & Max scale \\
+    \hline
+    {\tt mvm(i)} & 50 & 100 & 285 & 307 \\
+    {\tt mvm(o)} & 81 & 81 & 355 & 4 \\    
+    {\tt lq} & 168 & 27 & 4 & N/A \\
+    {\tt lbm} & 14 & 5 & 0 & N/A \\
+    {\tt wc} & 67 & 89 & 502 & 375 \\
+    \hline
+  \end{tabular}
+  
+\end{table}
+
+%\subsubsection{Identifying Scaling and Validity Constraints}
+%
+%We next evaluated \lancet's inference mode. \lancet first used the path conditions from many small training runs to identify the validity and scaling constraints for each benchmark. Table~\ref{tab:constrainttypes} summarizes the number of paths in the training set for each application and how many of each type of constraint were identified for each benchmark. \lancet was unable to categorize some constraints in the training set, as they did not appear in a majority of the training path conditions. The table shows the average number of dropped constraints per path condition. 
+%Note that \lancet identifies more validity constraints for {\tt mvm(o)} than it does for {\tt mvm(i)}. This is because in {\tt mvm(i)}, $v1$ and $v2$ are fixed, whereas in {\tt mvm(o)}, $v1$ and $v2$ are symbolic (though constrained to be equal), so validity constraints are generated for both.
+%
+%\begin{table}
+%  \small
+%  \centering
+%  \begin{tabular}{|l|l|l|l|l|l|}
+%    \hline
+%    \multirow{2}{*}{Bench} & \multirow{2}{*}{Paths} & \multicolumn{4}{c|}{Constraints per path condition} \\
+%     &  & Total & Dropped & Validity & Scaling \\
+%    \hline
+%    {\tt mvm(i)} & 3 & 35.7 & 26.7 & 7.0 & 2.0 \\
+%    {\tt mvm(o)} & 3 & 23.0 & 7.0 & 14.0 & 2.0 \\    
+%    {\tt lq} & 3 & 26.3 & 14.7 & 9.6 & 2.0 \\
+%    % {\tt lbm} & 3 & 20.0 & 9.0 & 9.0 & 2.0 \\
+%    {\tt lbm} & 14 & 21.5 & 10.5 & 9.0 & 2.0 \\
+%    {\tt wc} & 3 & 21.3 & 10.3 & 9.0 & 2.0 \\
+%    \hline
+%  \end{tabular}
+%  \caption{\# of paths used in training set, and number of constraints per path. Table shows total constraints, constraints dropped because of not enough similar constraints, and constraints identified as validity and scaling constraints.}
+%  \label{tab:constrainttypes}
+%\end{table}
+
+\subsubsection{Inferring Large-scale Inputs}
+
+Using the path conditions generated in the explicit mode for each benchmark, we used \lancet's inference mode to predict input values that would run the loop for larger scales. In particular, we attempt to use \lancet to generate an input that will run a loop exactly $N$ times, where $N$ is larger than the scales seen during training. In all cases, {\em \lancet successfully generates the large-scale input}. This is despite the very different scaling trends that different programs have. For example, {\tt lbm} scales linearly with the input, while {\tt lq} scales {\em logarithmically} with its input (the loop runs for $\log_2(N)$ iterations), and \lancet is able to correctly capture both trends.
+
+Interestingly, for all benchmarks, \lancet predictions are  perfect: {\em the generated input runs the program for exactly the specified number of iterations}. This is because the behaviors of these applications are deterministic, hence the {\em constraints} that govern scaling tend to be highly predictable, even if any individual set of inputs may not be.
+
+%Note that all of these programs (or programs plus generator shims, in the case of {\tt wc}) take numerical values as inputs. Because these values are provided on the command line, \lancet interprets them as byte arrays transformed with {\tt atoi()} into integers. As a result, the current implementation of \lancet is limited to generating inputs of a fixed length in bytes. {\em Note that inputs of this length need not be used during training}. Nevertheless, \lancet is able to make accurate predictions all the way to the maximum possible value of the input. In other words, when asked to generate an input for a certain scale, \lancet will correctly do so as long as the input is no more than the specified byte length. This restriction is due to low-level details of how KLEE handles command-line inputs, and eliminating it is a topic for future work.
+
+%\subsection{Case Studies}
+
+%This section describes specific usage experiences with two %more?
+%of our benchmarks, {\tt mvm} and {\tt lbm}.
+ 
+%\paragraph{mvm}
+
+%{\tt mvm} has two loops, each controlled by a different variable. Using the technique described in Section~\ref{sec:inference-mode}, \lancet can target these variables separately: either the number of columns in the matrix is fixed and the number of rows varied---scaling the inner loop---or the number of rows is fixed, and the number of columns varied---scaling the outer loop. As expected, \lancet is readily able to scale both loops, requiring just a handful of training runs to scale up the loop.
+
+%Typically, \lancet will concretize unused symbolic variables as 1. However, to elucidate some of the interesting aspects of our approach, we used \lancet to scale the inner loop while concretizing the number of columns as 2. By doing so, note that no valid execution of the program will result in the inner loop running an odd number of times; the inner loop will always run $2u$ times. Nevertheless, \lancet will still generate a series of training runs in explicit mode, and the path condition model \lancet infers to run a loop $N$ times is: $(u > N/2 - 1) \land (u \le N/2)$. Note that this means if $N$ is odd, the path condition will produce a value for $u$ that runs the loop {\em nearly}, but not exactly, $N$ times. Nevertheless, the resulting predicted value for $u$ gets as close to the target trip count as the program will allow.
+
+%\begin{figure}[htb]
+%\centering
+%\begin{lstlisting}
+%int u = /* read */; // symbolic, rows in matrix
+%int v = /* read */; //symbolic, columns in matrix and rows in vector
+%
+%float A[u][v] = /* generate random matrix */;
+%float x[v] = /* generate random vector */;
+%float y[u] = /* initialize vector to zero */;
+%
+%[[loop_target]]
+%for (int i = 0; i < v; i++) { @@@ \label{line:targetloop} @@@
+%  for (int j = 0; j < u; j++) { @@@ \label{line:innerloop} @@@
+%    y[j] += A[j][i] * x[i];
+%  }
+%}
+%\end{lstlisting}
+%\vspace{-5pt}
+%\caption{Code Abstract of Matrix-Vector Multiplication.}
+%\label{fig:mvm}
+%\end{figure}
+%
+%As shown in Figure~\ref{fig:mvm}, {\tt mvm} has two nested loop, each controlled by a different variable. Using the technique described in Section~\ref{sec:inference-mode}, \lancet can find the incremental set of constraints by comparing $N$-iteration with $N+1$-iteration cases. \lancet will pick the smallest $N$ and $N+1$ in the training data generated in the explicit mode, in this case, $N=1$. Without loss of generality, we target at the outer loop to generate scaling test inputs. As the only symbolic variables are $v$ and $v$ in this program, the explicit mode will only contain constraints generated by conditional branches that involve these two variables. In the case of the outer loop, each its iteration will generate the same set of constraints in the inner loop, so comparing the 1-iteration and 2-iteration path condition gives the incremental set that contains only constraints generated at the outer loop's condition $i<v$ as follows:
+%\[
+%  v > 1 \land
+%  v \le 2
+%\]
+%By extrapolating the constant terms in the previous incremental set, \lancet computes the next incremental set for the third iteration:
+%\[
+%  v > 2 \land
+%  v \le 3
+%\]
+%And so on for the fourth iteration:
+%\[
+%  v > 3 \land
+%  v \le 4
+%\]
+%Note that the second constraint of each set is not compatible with the set from the next iteration. In this case, \lancet will ignore the incompatible constraint, for example $v \le 2$ in the first set, and append the next set with the compatible constraints to form the complete path condition. For example, \lancet predicts the path condition for 5 iterations is as follows:
+%\[
+%  v > 1 \land
+%  v > 2 \land
+%  v > 3 \land
+%  v > 4 \land
+%  v \le 5
+%\]
+
+%\paragraph{lq} 
+%
+%{\tt lq} demonstrates some of the trickiness in identifying scaling and validity constraints. One of the validity constraints in the benchmark requires that the input be at least 15; \lancet correctly captures this validity constraint and enforces it for every input. 
+%
+%In contrast, a second validity constraint in {\tt lq} ensures that the input value is relatively prime to a concrete seed. This check is performed using Euclid's algorithm for GCDs, which result in a loop that runs an unpredictable, value-dependent number of times. The constraints describing an execution's path through the GCD loop look different for different runs, and are not identified as either validity or scaling. As a result, these constraints are dropped from the model entirely, and are not used to make predictions. Hence, there is no guarantee that an input predicted by the model will satisfy the validity constraint. Nevertheless, because the seed is chosen to be a large prime, most inputs generated by \lancet not only satisfy the validity constraint, they run the loop exactly the predicted number of times.
+
+%\paragraph{lbm}
+%
+%Using the 14 inputs generated for {\tt lbm} by \lancet's explicit mode, \lancet correctly generates an input that runs the target loop for 100 iterations. In fact, because the model built by \lancet is perfectly accurate, inputs can automatically be generated to run the loop for {\em any number of iterations desired}. This is in stark contrast to regular symbolic execution, where even after {\em 24 hours}, \lancet can only scale the loop up to 5 iterations (and KLEE cannot reach the target loop at all). Inference mode, by short-circuiting the symbolic execution process, is able to dramatically shorten the time it takes to generate large inputs for a program.
+
+%Because \lancet took a substantial amount of time to generate inputs for {\tt lbm}, we tried generating a scaling model using just the first 3 path conditions found by \lancet's explicit mode (3 is the minimum number of training runs that can be used, as \lancet's models have three terms---see Equation~\ref{eqn:model}). This model produces fairly inaccurate predictions: the lower bound constraints are predicted precisely, but the upper bound constraints are overly loose bounds. As a result, when a programmer asks \lancet to generate a 100-iteration input, she receives an input that runs the program for 1000 iterations! We note that this is only a partial failure: the loop is still scaled up, just not precisely. After further investigation, we found that \lancet is able to correctly model the behavior of {\tt lbm}'s path conditions once it sees 6 inputs.
+
+\subsection{Case Study with Memcached}
+
+{\tt Memcached} runs as a caching server that communicates with clients through TCP connections. Clients send commands to the server to store and fetch data objects. The server reads commands and sends back responses through a socket file descriptor for each client. In \lancet's symbolic socket layer, a socket is implemented as a symbolic file so that a server application can be tested by it self and all its interaction with clients through the socket can be recorded in the content of the symbolic file. For the case study of {\tt Memcached}, we added code to establish a connection with a single client which sends a single symbolic packet of configurable size to the server. Later on, the command processing functions are exercised with the symbolic packet and eventually a response will be written back to the symbolic file.
+
+We targeted at the processing function for a common command for {\tt Memcached}, the "get" command, used for retrieving one or more data objects currently stored in the cache server. The command takes the form of a space-delimited string that contains "get" or "bget" followed by a list of keys, IDs to address specific data objects. The command string is first split into an array of tokens. The tokens are then analyzed by the processing function for the "get" command. We targeted at the main loop in the processing function, {\tt process\_get\_command}, as shown in Figure~\ref{fig:example}. In the explicit mode, we set a limit of 10 iterations so \lancet can explore different paths thoroughly at small scales. After running in the explicit mode for around 10 hours, \lancet generated 590 tests that exercise the target loop between 1 and 10 iterations.
+
+Table~\ref{tab:memcached-explicit} shows some of the path conditions \lancet generated for {\tt Memcached}. We applied the inference mode on these generated tests and successfully deduced the path condition for exactly 100 iterations by extrapolating the difference between test000001 and test000006. Note there are multiple ways to reach 100 iterations by inferring over the generated tests. For example, we were able to do the same based on test000007 and test000008. However, there also exist path conditions that lead to inaccurate inference if employed as the base cases for path condition extrapolation. For example, the incremental set of test000006 and test000007 is {\tt '* * ****'} starting at the 6th byte of the input. The inference based on these two tests ends up with a path condition that exercises the target loop for 293 iterations. The reason for this inaccuracy is that \lancet only runs the explicit mode for a certain amount of time and could not cover every path for a given number of iterations. As a result, the incremental set between test000006 and test000007 is not the {\em minimal} incremental set between 2-iteration and 3-iteration path conditions.
+
+
+\begin{table}
+  \footnotesize
+  \centering
+  \caption{Examples of path conditions generated for {\tt Memcached}. ID, number of iterations and path condition are listed for each generated test. A character or space represents an equality constraint for the byte where it appears. A '*' symbol represents a constraint that enforces a non-space character for the byte where it appears.}
+  \label{tab:memcached-explicit}
+  \begin{tabularx}{\linewidth}{|l|l|X|}
+  \hline
+  \textbf{Test ID} & \textbf{Iterations} & \textbf{Path Condition}\\
+  \hline
+  \input{data/memcached.get.tab}
+  \hline
+  \end{tabularx}
+\end{table}

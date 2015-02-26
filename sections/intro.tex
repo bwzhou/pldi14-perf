@@ -1,0 +1,151 @@
+\section{Introduction}
+%XXX write about a single idea in a paragraph, only assemble the paragraphs later
+
+%it is difficult to write scalable software?
+Writing correct and performant software running at scale has always been a challenge, especially so given the rising popularity of multithreaded and distributed systems.
+Scalability turns out to be the Achilles heel of many, otherwise well-designed software systems, which suffer from correctness or performance problems when executed at a large scale.
+For example, Foursquare, a geo-social network for sharing experiences of places, had an unprecedented 17 hours of downtime because the data stored in one of its two MongoDB shards reached the hosting computer's RAM capacity~\cite{foursquare-outage}.
+This is an example of a scaling problem with the data size.
+As another example, the Hadoop Distributed File System (HDFS) runs into performance problems when the number of clients becomes too large, relative to the processing power of the namespace server~\cite{hdfs-scalability}.
+This is an example of a scaling problem that is triggered by a large number of nodes, and indirectly, by large sizes of data.
+% TODO
+% Play low on the importance of input size for two reasons: (a) it is unknown if the satisﬁability problem of string constraints with length operations is decidable in general~\cite{z3str-fse13}; (b) there is no off-the-shelf solver that supports string length.
+
+%where high-coverage unit tests fail?
+Bugs often happen out of the frequent paths of a program, rather in places where less attention has been paid to in the development process.
+As a remedy, unit tests are often introduced to cover both hot and cold paths and check for errors in the runtime.
+An important quality criterion for a unit test suite is code coverage, or how much portion of the entire code base of the system under test (SUT) is touched by a test suite.
+By the conventional definition of code coverage, a line of code is considered covered if it is executed for at least once by a test.
+Such definition of code coverage is fraudulent in two means.
+First, it is purely a control flow concept and therefore completely ignorant to the data flow.
+For example, a null pointer dereference error may never be triggered by a unit test that exercises the line of code but with a valid pointer.
+Furthermore, running every part of SUT for once is not sufficient to reveal many performance issues.
+For example, there was a scalability issue in a LRU cache implementation of MySQL~\cite{mysql-49177}, which can only be detected by running SQL SELECT in a loop for a large number of times.
+
+
+%why performance tests are difficult to write?
+Performance testing, as one kind of system testing that performs end-to-end black-box testing, is designed to find performance issues in software.
+The idea in its essence is to run SUT through a large input, measure the sustainable performance and observe if any failure is triggered in the runtime.
+For simple programs, it is obvious that a larger input will invoke a longer execution.
+For example a string copy takes more time for a longer input string.
+However, it requires years of practice before one can master the black art of finding "large" inputs for complex real-world software systems.
+Sheer increasing the amount of data contained in the input does not necessarily lead to a longer execution, depending on how the program processes the input data.
+Take the classic binary search algorithm for example, its run time grows as a logarithmic function of the input size.
+To double the run time of binary search, the input must be an order of magnitude larger in size.
+On the other hand, more data means more logs, which are more difficult to analyze if a bug does occur.
+Numerous research projects invested in log analysis~\cite{oliner-cacm12} have proved the task a difficult one.
+
+
+%QA's pain
+It is only natural to ponder if it is possible to achieve a long execution or a load spike with a reasonably sized input for SUT, or how to push an execution to the limit with inputs of a certain size.
+Unfortunately, there exists no systematic method to the best of our knowledge that leads to a performance test that induces a significant level of workload on SUT, not to mention striking a balance between execution length and input size.
+QA engineers often need to understand the internals and interfaces of complex software systems that consist of a pile of distributed components and millions of lines of code written by other developers, then endure a lengthy trial-and-error session to find a performance test of good quality.
+If we take a closer look, the QA workflow consists of the following steps:
+(a) making the test plan, i.e. starting with simple tests focused on individual code paths, followed by combination of different paths to simulate real user behaviors;
+(b) understanding the relevant code path and every other part of SUT that interacts with it to get sufficient knowledge for creating the performance tests;
+(c) developing and running the performance tests, while measuring the resultant performance using profiling tools.
+Out of these steps, (a) defines the policy, or the goal for the performance tests, for which human effort is indispensable, while (b) and (c) provide the mechanisms that implement and verify the resultant performance tests, which also form the most laborious part of the process for QA engineers.
+
+%lancet's contributions which should be echoed in evaluation
+We introduce \lancet, a performance test generation tool, to address the pain in the search process of performance tests by automating the latter two steps in the QA workflow where computers can be more efficient than human beings.
+\lancet is built on top of symbolic execution and statistical prediction, providing a tool with:
+(a) low entry barriers, i.e. little knowledge of SUT internals is required to create good performance tests,
+(b) systematic algorithms to reason the performance impact of values in the input,
+(c) integrated statistical models to extrapolate the scaling trend of SUT,
+(d) support for widely used concurrent and event-driven programming libraries,
+(e) on-the-fly SUT instrumentation for measurement and verification of generated performance tests.
+By default, \lancet inspects every loop in a program and tries to find inputs to run each loop for the number of iterations specified by the user.
+In the case where the user is familiar with the implementation of SUT, he can designate a set of target loops or even a single loop to reduce the scope of code considered by \lancet and speed up the test generation process.
+The reason for choosing loops is twofold. %TODO need more work
+First, programs spend a large part of their execution time in loops.
+Second, we observe, through examination of applications that have had documented scalability problems~\cite{XXX}, as the application is run at larger scales, the negative impact of inefficient or incorrect code inside a loop often gets amplified into severe performance regressions or cascading failures.
+
+When applying \lancet to an application, the user can specify the loop he wants to test and the load level, \ie the number of iterations, for the loop.
+\lancet takes these parameters from the user as guidance to steer its symbolic execution engine and finds the inputs that reach the given number of iterations for the given loop.
+\lancet makes two changes to the state-of-the-art symbolic execution algorithm.
+First, to reach a specific number of iterations after entering the target loop, \lancet uses a loop-centric search heuristic that favors the paths that stay inside the loop over those that exit.
+This path prioritization strategy is in contrast to existing path strategies that favor finding new paths.
+Second, \lancet shortcuts the path exploration by applying statistical inference to derive the path constraints at a large number of iteration from training samples, which consist of path constraints from running the loop a small number of iterations.
+This way, to reach $N$ iterations of a given loop, \lancet just needs to execute the loop for 1 $\ldots$ $M$ iterations where $M \ll N$ and collect the constraints at each iteration. Afterwards, the constraint solver is invoked for the extrapolated path constraints to get the input that would trigger $N$ iterations of the target loop.
+
+%TODO update the apps
+We apply \lancet to four disparate programs: a linear algebra code, {\tt mvm}, a quantum computer simulator from SPEC, {\tt libquantum}, a fluid dynamics program, {\tt lbm}, and a utility from the GNU Coreutils suite, {\tt wc}.
+Each of these programs needs to scale up to satisfy common use cases: {\tt mvm} to tackle large matrices, {\tt lq} to factorize large numbers, {\tt lbm} to simulate flows for more timesteps, and {\tt wc} to process large text corpuses.
+We show that for these programs, \lancet is able to generate more, and larger-scaling, inputs than a state-of-the-art test generation tool when given the same amount of computation time, and that in all cases, \lancet can generate even larger inputs through the use of statistical inference.
+Moreover, because of the regularity of the constraints that \lancet performs inference over, it is able to make its predictions perfectly, allowing programmers to correctly generate inputs of any size without incurring the cost of additional symbolic execution.
+
+\paragraph{Outline}
+Section~\ref{sec:background} provides background on symbolic execution.
+Section~\ref{sec:method} describes the basic design of \lancet, using a simple matrix-vector multiplication program as an example.
+%Section~\ref{sec:extensions} discusses how we extend \lancet to support more general programs, including those with many symbolic inputs and those that operate over structured input, while
+%Section~\ref{sec:discussion} explains the remaining shortcomings of \lancet.
+Section~\ref{sec:implementation} sketches the implementation of \lancet.
+Section~\ref{sec:evaluation} presents case studies of using \lancet to generate large-scale performance tests for several real-world applications.
+Section~\ref{sec:related} discusses related work, and
+Section~\ref{sec:conclusion} concludes.
+
+
+
+
+
+
+
+%%% old intro starts here
+%%% TODO move symbolic execution material into overview
+
+
+% Many programs suffer from scalability problems
+%Many software systems are called on to scale to large sizes, both in terms of sizes of data and numbers of application processes that are part of the system. Scalability also turns out to be the Achilles heel of many, otherwise well-designed software, whereby they suffer from correctness or performance problems when executed at a large scale. There are myriads of examples of this reported in bug repositories~\cite{hadoop-6901, cassandra-4681}, and in a few cases, they have caused widespread end-user visible outages. For example, Foursquare, the site for sharing experiences of places using geo-tagged information, had an unprecedented 17 hours of downtime because the data that it stored in MongoDB NoSQL store went through a spike causing problems with its sharding solution \cite{foursquare-outage}. This is an example of a scaling problem with the data size. As another example, the Hadoop Distributed File System (HDFS) runs into performance problems when the number of servers over which the data is spread becomes too large, relative to the number of servers used to store the meta-data \cite{hdfs-scalability-problem}. This is an example of a scaling problem that is triggered by a large number of nodes, and indirectly, by large sizes of data. 
+
+% \begin{comment}
+% Scalability is a key requirement for programs that aim to process ever-increasing amount of data and span thousands of nodes, especially in the wake of the diminishing increase in single-core performance and the broad adoption of multicore and scale-out architectures. Whether a program is scalable in terms of the size of input or the number of processors depends on a variety of possibly intertwined factors such as hardware specification, program behavior and workload characteristics. As a result of this complexity, minor mistakes in implementation and overlook of system peculiarities can dramatically hinder a program from running correctly and efficiently at scale. Thus, it is desirable to conduct systematic scalability testing of the program before releasing it into production.
+% \end{comment}
+
+% How to stress test programs for scalability
+%So the question arises what is the best way to stress test an application to uncover the scalability problems during testing? Today, there exists a wide variety of robust tools for stress testing applications, through variants of workload generators \cite{box-test, faban, httperf, jmeter, rubis, olio}. Through these, the developer\footnote{We use the term ``developer'' with the understanding that the activity may be carried out by a ``developer'' rather than the original developer. We will not make a distinction between these two roles for this paper.} can introduce a certain controlled amount of load as input to the application and observe the effect on the application. For example, given a certain rate of users that perform write transactions, what is the throughput of the application. As another example of stress testing that is widely used today, given a certain artificially introduced constraint on the resource available to an application (such as, reduced memory), what is the effect on the application performance~\cite{nagaraja-usits03}. However, consider the use case that the developer would like to target a specific region of code, such as, a computationally demanding loop, and would like to stress test the application by running the loop a user-driven (large) number of times. {\em Existing software testing approaches are not able to support this use case.}
+
+% SB (11/10/13): CTM - check white box testing literature
+% Why the use case of LANCET is important
+%The above use case comes up in many situations --- where the developer suspects a loop to be causing the slowdown as she tests the program at various scales, or where the developer would like to investigate the behavior of some specific, seldom-exercised code region, such as, exception handling code. In these use cases, the developer would like to ``direct'' the stress test generation framework to the specific region of code, and then to perform the test in a specific manner, such as, by causing a loop to iterate a given number of times. In this paper, we seek to provide such functionality in an efficient manner. We then wish to use this functionality to generate stress tests for evaluating scalability of real, complex programs. 
+
+% \begin{comment}
+% In practice, programmers conduct stress testing with the help of workload generators~\cite{box-test, faban, httperf, jmeter, rubis, olio} to measure the performance of an application and find QoS violations or functional bugs at high loads. During a testing session, a programmer wants to measure the performance of the application at given levels of loads (also called load testing), or find functional or performance anomalies under extreme conditions such as workload spike, resource starvation, or hardware failure. She imposes no control over which part of the application to be tested but rather treats the program as a black box. To increase the chance of finding functional or performance issues triggered by extreme demand, the programmer tweaks the workload generator in an ad-hoc manner to create long-running test cases that bombard the application with a large amount of data.
+
+% The black-box approach is agnostic to the internal logic of the application under test other than the input and output interfaces. Without the knowledge of how data is processed at different points of the program, stress testing essentially takes the {\em nuke-it-from-orbit} method by pumping into the program as much data as possible, burning lots of CPU cycles in repetitive invocations of the hot paths, to see if anything breaks. However, the frequent paths is also the part of code which is developed with extra care and tested extensively, hence less likely to have problems. Even for the case where a bug is successfully discovered using the black-box approach, it would save a lot of time and effort if we could uncover the same bug in a much shorter testing session with a carefully crafted input that press the vulnerable code with just enough load.
+% \end{comment}
+
+% Tie-in to symbolic execution
+%The field of symbolic execution \cite{exe-ccs06,dart-pldi05,klee} provides us with a basic building block for providing the functionality described above. Symbolic execution \cite{sen-cacm} is typically used in software testing to explore as many different program paths as possible in a given amount of time, and for each path to generate a set of concrete input values exercising it. Then, at specific points in each path, it can insert checks for the presence of various kinds of errors including assertion violations, uncaught exceptions, security vulnerabilities, and memory corruption. The key idea behind symbolic execution is to use {\em symbolic values}, instead of concrete data values, as input values, and to represent the values of program variables as symbolic expressions over the symbolic values. As a result, the output values computed by a program are expressed as a function of the input symbolic values. Relevant to our desired goal, symbolic execution can explore different program paths and through a constraint solver that it employs, it can generate the actual (\ie concrete) input values needed to exercise a given path. 
+
+% \begin{comment}
+% Recent development in symbolic execution~\cite{exe-ccs06,dart-pldi05} enables white-box test generation tools like KLEE~\cite{klee} to produce high-coverage tests for popular applications such as GNU/Coreutils. These tools represent the input to a program as an array of symbolic variables, accumulating constraints on the symbolic variables at each conditional branch that depends on the input, solving the set of constraints at the end of each execution path to get a concrete input that would trigger the same path if given to the program. Symbolic execution tools resort to SMT solvers~\cite{stp, z3} to determine which branch to pursue at every conditional branch or if it is necessary to fork a new path if both branches are satisfiable for the current set of constraints, which makes it intractable for them to explore long paths that contain a lot of branches due to the {\em path explosion} problem. Previous researches~\cite{cloud9,burnim-icse09,zhang-ase11} proposed methods to speed up the process by parallelizing symbolic execution of different paths or pruning uninteresting branches based on heuristics. However, they still need to execute the whole path symbolically, which makes them unsuitable for the search of long-running execution paths.
+% \end{comment}
+
+% Why symbolic execution cannot satisfy our requirement 
+% However, the latest developments in symbolic execution still fail to meet our requirements for generating stress tests for scalability evaluation. This arises from the fact that what we would like to do is to be able to execute a {\em given} loop a {\em given} number of times. We {\em do not} care to explore all paths needed to reach this loop and we {\em do} care to execute the loop a given number of times, which is typically a large number since we are testing for scalability. Symbolic execution is focused on path coverage and biases its search through a program's code path to identify hitherto unseen paths. This is without doubt an important aspect of software testing, but it does not support the use cases for scalability testing that we have laid out above. Further, symbolic execution runs into the problem of path explosion, since the number of program paths grows (roughly) exponentially with program length%
+% % \footnote{Actually, number of conditional branch points in a program, to 
+% % be precise.}
+% . Thus, if we were to tweak symbolic execution to iterate a loop a given number of times, it will generate constraints for symbolic variables for {\em each} loop iteration. Thus, the number of constraints will quickly grow to a large number and solving them will become prohibitively expensive. Keep in mind that solving constraints to generate the concrete values from the symbolic variables is the most computationally expensive part of symbolic execution. 
+
+% Our solution - why we target loops
+% In this paper, we present \lancet, which incorporates the developer's insight to generate stress tests targeted at performance-critical code in complex real-world applications. We build \lancet using the basic principle of symbolic execution, as described above, but modify it fundamentally to remove its shortcomings with respect to our goal of stress testing for scalability. Specifically, \lancet generates stress tests for loops. The reason for choosing loops is twofold. First, programs spend a large part of their execution time in loops.
+% % , as has also been reported for a wide variety of domains \cite{lhotak-popl11,feng-pldi12}. 
+% Second, we observe, through examination of applications that have had documented scalability problems, that often there are critical loops that are executed more frequently as the application is run at larger scales. The negative impact of inefficient or incorrect code inside a loop often only manifests when the loop is executed a specific, typically large number of times.
+
+% can only be brought out by causing the loop to execute a controlled, typically large, number of times. 
+
+% \begin{comment}
+% First, loop is the smallest syntax unit of a program that gets executed for more times when larger inputs are given to the program, which means the program would spend more time running inside loops as it scales up. As a result, the efficiency of code insides loops is critical to the scalability of the whole program. On the other hand, most programs spend a big chunk of their execution time inside loops, as pointed out by previous research~\cite{lhotak-popl11}. For example, a web service usually enters an infinite loop waiting for incoming requests after the initial setup steps is finished. A cluster scheduler would go through a queue of tasks and schedule each of them to the most suitable node, which all happens in a task scheduling loop. The negative impact of inefficient or incorrect code inside a loop can only be amplified by the repetition.
+% \end{comment}
+
+% Use case of our system; contributions to speed up execution
+% When applying \lancet to an application, the programmer can specify the loop she wants to test and the load level, \ie the number of iterations, for the loop. \lancet takes these parameters from the programmer as guidance to steer its symbolic execution engine and finds the inputs that reach the given number of iterations for the given loop. The typical use case would be to run the loop a {\em large} number of times. For this, \lancet makes two changes to ordinary symbolic execution. {\em First}, to reach a specific number of iterations after entering the target loop, \lancet uses a loop-centric search heuristic that favors the paths that stay inside the loop over those that exit. This path prioritization strategy is in contrast to existing path strategies that favor finding new paths. {\em Second}, \lancet shortcuts the path exploration by applying statistical inference to derive the path constraints at a large number of iteration from training samples, which consist of path constraints from running the loop a small number of iterations. This way, to reach $N$ iterations of a given loop, \lancet just needs to execute the loop for 1 $\ldots$ $M$ iterations (in a discontinuous manner through the range) where $M \ll N$ and collect the constraints at each iteration.
+% To reach the target loop, \lancet employs a classical path searching strategy that mixes random path selection and code coverage heuristics.
+
+% Demonstration
+% We implement \lancet by extending KLEE, the most widely used symbolic execution tool. We apply it to four disparate programs: a linear algebra code, {\tt mvm}, a quantum computer simulator, {\tt libquantum}, a fluid dynamics program, {\tt lbm}, and a Unix text utility, {\tt wc}. Each of these programs needs to scale up to satisfy common use cases: {\tt mvm} to tackle large matrices, {\tt lq} to factorize large numbers, {\tt lbm} to simulate flows for more timesteps, and {\tt wc} to process large text corpuses. We show that for many programs, \lancet is able to generate more, and larger-scaling, inputs than KLEE when given the same amount of computation time, and that in all cases, \lancet can generate even larger inputs through the use of inference. Moreover, because of the regularity of the constraints that \lancet performs inference over, it is able to make its predictions perfectly, allowing programmers to correctly generate inputs of any size without incurring the cost of additional symbolic execution.
+
+ % --- a numeric program \texttt{libquantum}, which is a quantum computer simulator; Unix utilities \texttt{grep} and \texttt{wc}; and \texttt{Blast}, the widely used program from NIH for matching genomic sequences. Each of these programs needs to scale up to satisfy common use cases --- \texttt{libquantum} is used to factorize large numbers; \texttt{grep} and \texttt{wc} are used with large text corpuses; and \texttt{Blast} is used for matching in large genomic databases. We show through experimentation that with a cutoff time of XXX hours, KLEE is only able to generate inputs for scales of XXX, XXX, and XXX, while \lancet can generate inputs for scales XXX, XXX, and XXX. A statistical inference procedure always has inaccuracies and we see that our inaccuracy is only XXX for these three applications. Here accuracy refers to the ability to generate valid inputs, \ie, inputs that will indeed let the loop execute the user-given number of times. 
+ 
+% \paragraph{Outline}
+% Section~\ref{sec:background} provides background on dynamic symbolic execution. Section~\ref{sec:method} describes the basic design of \lancet, using a simple matrix-vector multiplication program as an example. Section~\ref{sec:extensions} discusses how we extend \lancet to support more general programs, including those with many symbolic inputs and those that operate over structured input, while Section~\ref{sec:discussion} explains the remaining shortcomings of \lancet. Section~\ref{sec:implementation} sketches the implementation of \lancet. Section~\ref{sec:evaluation} presents case studies of using \lancet to generate large-scale performance tests for several real-world applications. Section~\ref{sec:related} discusses related work, and Section~\ref{sec:conclusion} concludes.

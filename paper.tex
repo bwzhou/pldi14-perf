@@ -1,0 +1,154 @@
+\documentclass[preprint,nocopyrightspace]{sigplanconf-noauthor}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{xspace,url}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{multirow,color}
+\usepackage{subfigure}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage{comment}
+\usepackage{listings}
+\lstset{
+  language=C++,
+  basicstyle=\scriptsize\ttfamily,
+  % emph={foreach},
+  % emphstyle=\textbf,
+  morekeywords={size\_t, token\_t},
+  numbers=left,
+  showstringspaces=false,
+  escapechar={@},
+  keywordstyle=\color{blue},
+  %stringstyle=\color{magenta},
+  commentstyle=\color{red},
+  morecomment=[s][\color{red}]{[[}{]]}
+}
+\usepackage{tabularx}
+
+%\usepackage[sort&compress]{natbib}
+
+%\newcommand{\subparagraph}{}
+\usepackage[compact]{titlesec}
+
+\newtheorem{theorem}{\noindent {Theorem}}{}
+\newtheorem{lemma}{\noindent {Lemma}}{}
+\newtheorem{claim}{\noindent {Claim}}{}
+\newtheorem{observation}{\noindent {Observation}}{}
+\newtheorem{definition}{\noindent {Definition}}
+\newtheorem{problem}{\noindent {Problem}}{}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{MyBlue}{rgb}{0.1,0.3,0.75}
+\newcommand{\note}[1]{\textcolor{red}{\bf \em #1}}
+%\newcommand{\comment}[1]{{\color{gray}[\textsf{#1}]}}
+\newcommand{\authorcomment}[1]{\iffalse #1 \fi}
+\newcommand{\etc}{\emph{etc.}\xspace}
+\newcommand{\ie}{\emph{i.e.,}\xspace}
+\newcommand{\eg}{\emph{e.g.,}\xspace}
+\newcommand{\etal}{\emph{et al.}\xspace}
+\newcommand{\bfem}{\bf \em}
+
+\newcommand{\vrisha}{{\sc Vrisha}\xspace}
+\newcommand{\wukong}{{\sc WuKong}\xspace}
+\newcommand{\lancet}{{\sc Lancet}\xspace}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\newcommand\vartextvisiblespace[1][.5em]{%
+  \makebox[#1]{%
+    \kern.07em
+    \vrule height.3ex
+    \hrulefill
+    \vrule height.3ex
+    \kern.07em
+  }% <-- don't forget this one!
+}
+
+%caption for table
+%\newcommand{\mtcaption}[1]{\caption{#1}\vspace{-0.1in}}
+%\newcommand{\mfcaption}[1]{\vspace{-0.03in}\caption{#1}\vspace{-0.25in}}
+%\newenvironment{mytable}{\begin{table}}{\vspace{-0.15in}\end{table}}
+%\newenvironment{mytable*}{\begin{table*}}{\vspace{-0.15in}\end{table*}}
+
+% TODO: it would be nice to not have to do this
+%\linespread{0.972}
+
+\begin{document}
+
+\authorpermission
+
+%\titlebanner{banner above paper title}        % These are ignored unless
+%\preprintfooter{short description of paper}   % 'preprint' option specified.
+
+\title{Efficient Load Test Generation}
+
+\authorinfo{Bowen Zhou \and Milind Kulkarni \and Saurabh Bagchi}
+           {Purdue University}
+           {\{bzhou, milind, sbagchi\}@purdue.edu}
+
+\maketitle
+
+\pagenumbering{arabic}
+\pagestyle{plain}
+
+\begin{abstract}
+
+A crucial part of any software testing regimen is {\em performance testing}:
+a program must be put under load, \eg by executing a critical loop of the program many times, to
+ensure that the program behaves as expected at large scales. Unfortunately,
+generating precise performance tests, where a specific part of the program can be 
+exercised at a controllable load level, is challenging. The standard approach to generating
+performance tests using dynamic symbolic execution incurs too much overhead to
+effectively generate large-scale test inputs. We propose \lancet, a dynamic
+symbolic execution--based tool that sidesteps the overheads. \lancet has two
+key innovations: (i) a path exploration heuristic for dynamic symbolic
+execution that more effectively generates scaling inputs for loops in complex
+programs; and (ii) a novel {\em constraint inference} method, that uses
+statistical inference on small-scale inputs to automatically infer constraints
+that describe large-scale inputs, allowing programmers to generate
+large inputs without performing symbolic execution at large scales. We
+demonstrate the effectiveness of \lancet by using it to infer large-scale,
+targeted inputs for synthetic benchmarks and real-world distributed applications
+such as Memached and Redis.
+
+\end{abstract}
+
+% \category{D.2.4}{Software Engineering}{Software/Program Verification}[Statistical Methods]
+% \category{D.2.5}{Software Engineering}{Testing and Debugging}[Diagnostics]
+%  
+% \terms
+% 
+% \keywords
+
+\sloppy
+
+\input{sections/intro}
+\input{sections/background}
+% \input{sections/overview}
+\input{sections/method}
+%\input{sections/extensions}
+%\input{sections/discuss}
+\input{sections/prototype}
+\input{sections/eval}
+\input{sections/relate}
+\input{sections/ending}
+
+% \renewcommand{\bibfont}{\scriptsize\raggedright}
+\setlength{\bibsep}{2pt}
+% \bibliographystyle{abbrvnat}
+\bibliographystyle{abbrv}
+\bibliography{paper}
+
+%% The bibliography should be embedded for final submission.
+%
+%\begin{thebibliography}{}
+%\softraggedright
+%
+%\bibitem[Smith et~al.(2009)Smith, Jones]{smith02}
+%P. Q. Smith, and X. Y. Jones. ...reference text...
+%
+%\end{thebibliography}
+
+\end{document}

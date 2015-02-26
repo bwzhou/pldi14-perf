@@ -1,0 +1,51 @@
+We thank the reviewers for their helpful comments and suggestions.
+
+We were unclear in the introduction of our paper regarding the use cases of
+Lancet, and hence all the reviewers raised reasonable doubts about the
+motivation of this work. The target users for Lancet are testers who need to
+write performance tests for code (e.g., to develop test suites for programs).
+The key challenge, then, is to design tests to evaluate the performance of the
+system, rather than merely its correctness. Note that performance evaluation
+focuses on the interplay between an application and its environment, to
+identify issues such as poor cache behavior. As such, the key challenge is to
+make a program take longer in a way consistent with running at a larger scale
+(so, e.g., adding extra pauses does not suffice).
+
+Testers usually either take a white-box approach by reading the code to
+identify performance critical parts of the system and inferring the inputs
+that would trigger these critical parts, or take a black-box approach to
+search heuristically through the space of all possible inputs guided by the
+cost of execution.
+
+Lancet aims to simplify the white-box approach of performance test generation,
+specifically the reverse deduction process where the tester has identified a
+performance-critical code region (alternately, the developer has identified
+critical code regions) but needs to trace back to the entry of the program to
+generate a valid test that would trigger the target code region. Note that
+generating a test that both reaches the code region *and* stresses the code
+region a predictable amount is challenging, as the input must satisfy all the
+path constraints to reach the code while still providing predictable behavior
+once the code region is reached. Traditional coverage-optimized test
+generation techniques using symbolic execution are not suited to accomplish
+this task: they can reach the code region, but cannot also generate a
+predictable amount of load within the region, since they would not cover a
+loop for more than a few iterations before jumping to other unexplored code.
+
+The loop-centric path scheduling and the statistical inference of path 
+constraints are the two key technical difference between Lancet and 
+prior symbolic execution based test generation tools, which enables 
+Lancet to steer the execution path to a high number of iterations more 
+effectively.
+
+We admit the lack of significant evaluation of Lancet against real
+applications and are determined to improve on this aspect of our work in the
+future. But the accusation of Lancet being an example of an extreme case of
+bait-and-switch is a bit harsh. We discussed the scalability issues in these
+applications at the beginning of our paper to emphasize the prevalence and
+importance of performance testing. The key claim we evaluate is whether Lancet
+is able to (relatively) quickly generate large-scale inputs.
+
+Lancet is still under active development. From the comments from the
+reviewers, we realized problems in our work that we did not notice before the
+submission and are inspired on ways to improve our tool. We want to thank the
+reviewers for these invaluable feedback on our work.
